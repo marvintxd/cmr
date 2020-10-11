@@ -7,7 +7,7 @@ order_labels = [11, 11, 11, 5, 3, 3, 3, 3, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7
 family_labels = []
 
 curr = "train"
-img_list_path = "../cvpr18-inaturalist-transfer/data/cub_200/images/{}.txt".format(curr)
+img_list_path = "../cvpr18-inaturalist-transfer/data/cub_200/{}.txt".format(curr)
 f = open(img_list_path, "r")
 img_list = f.readlines()
 f.close()
@@ -17,13 +17,12 @@ f.close()
 
 # out: 001.Black_footed_Albatross/Black_Footed_Albatross_0046_18.jpg: 11
 
-f.open("../cvpr18-inaturalist-transfer/data/cub_200/images/categorized_by_order_{}.txt".format(curr), "r")
+f = open("../cvpr18-inaturalist-transfer/data/cub_200/categorized_by_order_{}.txt".format(curr), "w")
 labelled = []
 for line in img_list:
-    path, _ = line.split()
-    species_idx = path[7:10]
-
+    path, species_idx = line.split()
+    print("Species:", species_idx)
     label = order_labels[int(species_idx)]
-    out_string = path + ": " + str(label) + "\n"
+    out_string = path + " " + str(label) + "\n"
     f.write(out_string)
 f.close()
