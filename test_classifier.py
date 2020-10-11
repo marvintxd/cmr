@@ -39,8 +39,13 @@ from data import cub as cub_data
 #
 # opts = flags.FLAGS
 
-opts = {'img_size': 256,
-        'img_path': 'misc/demo_data/img1.jpg'}
+if torch.cuda.is_available():
+    device = torch.device("cuda:0")
+    torch.cuda.set_device(device)
+else:
+    device = torch.device("cpu")
+
+opts = {'img_size': 256}
 
 
 def preprocess_image(img_path, img_size=256):
@@ -63,19 +68,21 @@ def preprocess_image(img_path, img_size=256):
 
     return img
 
-data_dir = "./cvpr18-inaturalist-transfer/data/cub_200/images/"
+data_dir = "../cvpr18-inaturalist-transfer/data/cub_200/"
 class CUBDataset(Dataset):
     def __init__(self, data_dir, type="train"):
         self.data_dir = data_dir
 
         if type == "train":
-            img_list_file = open(os.path.join(data_dir, "image_group_labels_train.txt"), "r")
+            img_list_file = open(os.path.join(data_dir, "categorized_by_order_train.txt"), "r")
         else:
-            img_list_file = open(os.path.join(data_dir, "image_family_labels_test.txt"), "r")
+            img_list_file = open(os.path.join(data_dir, "categorized_by_order_val.txt"), "r")
         img_list = img_list_file.readlines()
+
+        #each line: images/200.Common_Yellowthroat/Common_Yellowthroat_0010_190572.jpg: 7
         self.imgs = []
         for line in img_list:
-            path, label = line.strip().split()
+            path, label = line.strip().split(': ')
             self.imgs.append((path, int(label)))
 
     def __len__(self):
@@ -87,13 +94,17 @@ class CUBDataset(Dataset):
         # img = io.imread(img_path)
         return img, self.imgs[idx][1]
 
+# based on order
+classes = ('Anseriformes', 'Apodiformes', 'Caprimulgiformes', 'Charadriiformes', 'Coraciiformes',
+           'Cuculiformes', 'Gaviiformes', 'Passeriformes', 'Pelecaniformes', 'Piciformes',
+           'Podicipediformes', 'Procellariiformes', 'Suliformes')
+
 class Classifier(nn.Module):
-    def __init__(self, input_shape, n_classes, n_blocks=4, nz_feat=100,  batch_norm=True):
+    def __init__(self, input_shape, n_classes, n_blocks=4, nz_feat=100):
         super(Classifier, self).__init__()
-        self.encoder = mesh_net.Encoder(input_shape, n_blocks=4, nz_feat=nz_feat)
+        self.encoder = mesh_net.Encoder(input_shape, n_blocks=n_blocks, nz_feat=nz_feat)
         self.linear = nn.Linear(nz_feat, n_classes)
         self.log_softmax = nn.LogSoftmax()
-        self.loss = nn.NLLLoss()
 
     def forward(self, img):
         img_feat = self.encoder.forward(img)
@@ -108,33 +119,30 @@ train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=4, shuffle=
 test_dataset = CUBDataset(data_dir, "test")
 test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=4, shuffle=False, num_workers=2)
 
-# based on order
-classes = ('Anseriformes', 'Apodiformes', 'Caprimulgiformes', 'Charadriiformes', 'Coraciiformes',
-           'Cuculiformes', 'Gaviiformes', 'Passeriformes', 'Pelecaniformes', 'Piciformes',
-           'Podicipediformes', 'Procellariiformes', 'Suliformes')
 
-classifier = Classifier((opts['img_size'], opts['img_size']))
+
+classifier = Classifier((opts['img_size'], opts['img_size']), len(classes)).to(device)
 optimizer = torch.optim.Adam(classifier.parameters(), lr=0.01)
 criterion = torch.nn.NLLLoss()
 
 running_loss = 0.0
-for epoch in range(opts.num_pretrain_epochs, opts.num_epochs):
-    epoch_start_time = time.time()
-    for i, data in enumerate(train_loader):
-        inputs, labels = data
-        optimizer.zero_grad()
-
-        outputs = classifier(inputs)
-        loss = criterion(outputs, labels)
-        loss.backward()
-        optimizer.step()
-
-        running_loss += loss.item()
-        if i % 1000 == 999: # print every 1000 minibatches
-            print("{}, {}: loss: {}".format(epoch, i, loss/1000))
-            running_loss = 0.0
-
-    print("epoch {}: {:.4f}".format(epoch, time.time() - epoch_start_time))
+# for epoch in range(opts.num_pretrain_epochs, opts.num_epochs):
+#     epoch_start_time = time.time()
+#     for i, data in enumerate(train_loader):
+#         inputs, labels = data
+#         optimizer.zero_grad()
+#
+#         outputs = classifier(inputs)
+#         loss = criterion(outputs, labels)
+#         loss.backward()
+#         optimizer.step()
+#
+#         running_loss += loss.item()
+#         if i % 1000 == 999: # print every 1000 minibatches
+#             print("{}, {}: loss: {}".format(epoch, i, loss/1000))
+#             running_loss = 0.0
+#
+#     print("epoch {}: {:.4f}".format(epoch, time.time() - epoch_start_time))
 
 
     # if (epoch + 1) % opts.save_epoch_freq == 0:
