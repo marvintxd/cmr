@@ -50,6 +50,10 @@ opts = {'img_size': 256}
 
 def preprocess_image(img_path, img_size=256):
     img = io.imread(img_path) / 255.
+    
+    # if grayscale
+    if len(img.shape) == 2:
+        img = np.repeat(np.expand_dims(img, 2), 3, axis=2)
 
     # Scale the max image size to be img_size
     scale_factor = float(img_size) / np.max(img.shape[:2])
@@ -63,8 +67,8 @@ def preprocess_image(img_path, img_size=256):
 
     img = img_util.crop(img, bbox, bgval=1.)
 
-    # # Transpose the image to 3xHxW
-    # img = np.transpose(img, (2, 0, 1))
+    # Transpose the image to 3xHxW
+    img = np.transpose(img, (2, 0, 1))
 
     return img
 
@@ -90,7 +94,18 @@ class CUBDataset(Dataset):
 
     def __getitem__(self, idx):
         img_path = os.path.join(self.data_dir, self.imgs[idx][0])
-        img = preprocess_image(img_path)
+        try:
+            img = preprocess_image(img_path)
+        except IndexError as err:
+            print("ERROR IN PREPROCESS")
+            imagee = io.imread(img_path)
+            print(imagee.shape)
+            print("issue with path", img_path)
+            print("===============================\n\n")
+            torch.save(imagee, "inst_with_issue.pt")
+            print(err)
+            raise
+        img = torch.tensor(img, dtype=torch.float)
         # img = io.imread(img_path)
         return img, self.imgs[idx][1]
 
@@ -104,7 +119,7 @@ class Classifier(nn.Module):
         super(Classifier, self).__init__()
         self.encoder = mesh_net.Encoder(input_shape, n_blocks=n_blocks, nz_feat=nz_feat)
         self.linear = nn.Linear(nz_feat, n_classes)
-        self.log_softmax = nn.LogSoftmax()
+        self.log_softmax = nn.LogSoftmax(1)
 
     def forward(self, img):
         img_feat = self.encoder.forward(img)
@@ -115,36 +130,55 @@ class Classifier(nn.Module):
 
 
 train_dataset = CUBDataset(data_dir, "train")
-train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=4, shuffle=True, num_workers=2)
+train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=32, shuffle=True, num_workers=2, drop_last=True)
 test_dataset = CUBDataset(data_dir, "test")
-test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=4, shuffle=False, num_workers=2)
-
-
+test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=32, shuffle=False, num_workers=2, drop_last=True)
 
 classifier = Classifier((opts['img_size'], opts['img_size']), len(classes)).to(device)
 optimizer = torch.optim.Adam(classifier.parameters(), lr=0.01)
 criterion = torch.nn.NLLLoss()
 
+print("Starting training")
 running_loss = 0.0
-# for epoch in range(opts.num_pretrain_epochs, opts.num_epochs):
-#     epoch_start_time = time.time()
-#     for i, data in enumerate(train_loader):
-#         inputs, labels = data
-#         optimizer.zero_grad()
-#
-#         outputs = classifier(inputs)
-#         loss = criterion(outputs, labels)
-#         loss.backward()
-#         optimizer.step()
-#
-#         running_loss += loss.item()
-#         if i % 1000 == 999: # print every 1000 minibatches
-#             print("{}, {}: loss: {}".format(epoch, i, loss/1000))
-#             running_loss = 0.0
-#
-#     print("epoch {}: {:.4f}".format(epoch, time.time() - epoch_start_time))
+losses = []
+start_time = time.time()
+total_steps = 0
+#for epoch in range(opts.num_pretrain_epochs, opts.num_epochs):
+for epoch in range(500):
+    epoch_start_time = time.time()
+    for i, data in enumerate(train_loader):
+        inputs, labels = data
+        inputs, labels = inputs.to(device), labels.to(device)
+        optimizer.zero_grad()
 
+        outputs = classifier(inputs)
+        loss = criterion(outputs, labels)
+        loss.backward()
+        optimizer.step()
 
+        running_loss += loss.item()
+        '''
+        if (i+1) % 92 == 0: # print every 92 minibatches - will have 2 in an epoch
+            print("{}, {}: loss: {:.4f}".format(epoch+1, i+1, running_loss/100))
+            losses += [running_loss]
+            running_loss = 0.0
+        '''
+        total_steps += 1
+
+    print("epoch {}: {:.2f}s \t{:.2f}s total".format(epoch+1, time.time() - epoch_start_time, time.time()-start_time))
+    print("\tloss: {}".format(running_loss/(i+1)))
+    losses += [running_loss]
+    running_loss = 0.0
+
+   
+    if (epoch + 1) % 50 == 0:
+        print('saving the model at the end of epoch {:d}, iters {:d}'.format(epoch + 1, total_steps))
+        save_filename = 'classifier_checkpoint_{}.pth'.format(epoch+1)
+        save_path = os.path.join("./checkpoints", save_filename)
+        torch.save(classifier.cpu().state_dict(), save_path)
+        classifier.to(device)
+
+print(losses)
     # if (epoch + 1) % opts.save_epoch_freq == 0:
     #     print('saving the model at the end of epoch {:d}, iters {:d}'.format(epoch, total_steps))
     #     self.save('latest')
