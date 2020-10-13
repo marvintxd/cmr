@@ -103,18 +103,16 @@ class Classifier(nn.Module):
 
 curr = "test"
 
-if curr == "train":
-    train_dataset = CUBDataset(data_dir, "train")
-    train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=32, shuffle=True, num_workers=2, drop_last=False)
-    train_size = len(train_dataset)
-else:
-    test_dataset = CUBDataset(data_dir, "test")
-    test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=32, shuffle=False, num_workers=2, drop_last=False)
-    test_size = len(test_dataset)
+train_dataset = CUBDataset(data_dir, "train")
+train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=32, shuffle=True, num_workers=2, drop_last=False)
+train_size = len(train_dataset)
+test_dataset = CUBDataset(data_dir, "test")
+test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=32, shuffle=False, num_workers=2, drop_last=False)
+test_size = len(test_dataset)
 
 classifier = Classifier((opts['img_size'], opts['img_size']), len(classes)).to(device)
 optimizer = torch.optim.Adam(classifier.parameters(), lr=0.01)
-criterion = torch.nn.NLLLoss(class_weights)  # reweight for training
+criterion = torch.nn.NLLLoss(torch.tensor(class_weights).to(device))  # reweight for training
 criterion_unweighted = torch.nn.NLLLoss()
 
 # if curr == "train":
@@ -126,7 +124,7 @@ start_time = time.time()
 total_steps = 0
 #for epoch in range(opts.num_pretrain_epochs, opts.num_epochs):
 
-for epoch in range(500):
+for epoch in range(20):
     epoch_start_time = time.time()
 
     epoch_loss_train = 0.0
@@ -151,11 +149,12 @@ for epoch in range(500):
         '''
         total_steps += 1
 
-    print("\nepoch {}: {:.2f}s \t{:.2f}s total".format(epoch+1, time.time() - epoch_start_time, time.time()-start_time))
+    #print("\nepoch {}: {:.2f}s \t{:.2f}s total".format(epoch+1, time.time() - epoch_start_time, time.time()-start_time))
+    print("\nepoch {}: {:.2f}s".format(epoch+1, time.time() - epoch_start_time))
     print("\ttrain loss: {}".format(epoch_loss_train/(i+1)))
     losses_train += [epoch_loss_train]
 
-    if (epoch + 1) % 50 == 0:
+    if (epoch + 1) % 10 == 0:
         print('saving the model at the end of epoch {:d}, iters {:d}'.format(epoch + 1, total_steps))
         save_filename = 'classifier_checkpoint_{}.pth'.format(epoch+1)
         save_path = os.path.join("./checkpoints", save_filename)
@@ -164,44 +163,47 @@ for epoch in range(500):
 
     #test
     classifier.eval()
+    
+    with torch.no_grad():
+        hit_inst = 0
+        total_inst = 0
+        epoch_loss_test = 0.0
+        epoch_loss_test_unweighted = 0.0
+        class_hits = [0] * len(classes)
+        class_totals = [0] * len(classes)
+        
+        test_start_time = time.time()
+        for i, data in enumerate(test_loader):
+            inputs, labels = data
+            inputs, labels = inputs.to(device), labels.to(device)
 
-    hit_inst = 0
-    total_inst = 0
-    epoch_loss_test = 0.0
-    epoch_loss_test_unweighted = 0.0
-    class_hits = [0] * len(classes)
-    class_totals = [0] * len(classes)
+            outputs = classifier(inputs)
+            loss = criterion(outputs, labels)
+            loss_unweighted = criterion_unweighted(outputs, labels)
+            epoch_loss_test += loss.item()
+            epoch_loss_test_unweighted += loss_unweighted.item()
 
-    for i, data in enumerate(test_loader):
-        inputs, labels = data
-        inputs, labels = inputs.to(device), labels.to(device)
+            pred = outputs.argmax(1)
 
-        outputs = classifier(inputs)
-        loss = criterion(outputs, labels)
-        loss_unweighted = criterion_unweighted(outputs, labels)
-        epoch_loss_test += loss.item()
-        epoch_loss_test_unweighted += loss.unweighted.item()
+            for j in range(len(labels)):
+                class_totals[labels[j]] += 1
+                if labels[j] == pred[j]:
+                    class_hits[labels[j]] += 1
 
-        pred = outputs.argmax(1)
+        # hit_inst += sum(class_hits)
+        # total_inst += sum(class_totals)
+        # hit_inst += sum(pred == labels)
+        # total_inst += len(labels)
 
-    for j in range(len(labels)):
-        class_totals[labels[j]] += 1
-        if labels[j] == pred[j]:
-            class_hits[labels[j]] += 1
-
-    # hit_inst += sum(class_hits)
-    # total_inst += sum(class_totals)
-    # hit_inst += sum(pred == labels)
-    # total_inst += len(labels)
-
-    # print("epoch {}".format(epoch))
-    print("\ttest loss: {} | {}\t accuracy: {:.4f}".format(epoch_loss_test / (i + 1), epoch_loss_test_unweighted / (i + 1),
-                                                           sum(class_hits) / sum(class_totals)))
-    for i in range(len(classes)):
-        print("{}: {:.4f}".format(i, class_hits[i] / class_totals[i]), end=", ")
-    print()
-    losses_test += [epoch_loss_test]
-    losses_test_unweighted += [epoch_loss_test_unweighted]
+        # print("epoch {}".format(epoch))
+        print("eval: {:.2f}s \t{:.2f}s total".format(time.time()-test_start_time, time.time()-start_time))
+        print("\ttest loss: {} | {}\t accuracy: {:.4f}".format(epoch_loss_test / (i + 1), epoch_loss_test_unweighted / (i + 1),
+                                                               sum(class_hits) / sum(class_totals)))
+        for i in range(len(classes)):
+            print("{}: {:.4f}".format(i, (class_hits[i] / class_totals[i]) if class_totals[i] > 0 else -1), end=", ")
+        print()
+        losses_test += [epoch_loss_test]
+        losses_test_unweighted += [epoch_loss_test_unweighted]
 
 print("=== train loss ===")
 print(losses_train)
