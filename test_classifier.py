@@ -1,13 +1,3 @@
-"""
-Demo of CMR.
-
-Note that CMR assumes that the object has been detected, so please use a picture of a bird that is centered and well cropped.
-
-Sample usage:
-
-python demo.py --name bird_net --num_train_epoch 500 --img_path misc/demo_data/img1.jpg
-"""
-
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
@@ -28,16 +18,6 @@ from nnutils import test_utils
 from nnutils import mesh_net
 from utils import image as img_util
 from data import cub as cub_data
-
-
-# flags.DEFINE_string('img_path', 'data/im1963.jpg', 'Image to run')
-# ###
-# # flags.DEFINE_string('img_path', 'misc/demo_data/img1.jpg', 'Image to run')
-# # flags.DEFINE_integer('num_train_epoch', 500, "num")
-# ###
-# flags.DEFINE_integer('img_size', 256, 'image size the network was trained on.')
-#
-# opts = flags.FLAGS
 
 if torch.cuda.is_available():
     device = torch.device("cuda:0")
@@ -94,17 +74,7 @@ class CUBDataset(Dataset):
 
     def __getitem__(self, idx):
         img_path = os.path.join(self.data_dir, self.imgs[idx][0])
-        try:
-            img = preprocess_image(img_path)
-        except IndexError as err:
-            print("ERROR IN PREPROCESS")
-            imagee = io.imread(img_path)
-            print(imagee.shape)
-            print("issue with path", img_path)
-            print("===============================\n\n")
-            torch.save(imagee, "inst_with_issue.pt")
-            print(err)
-            raise
+        img = preprocess_image(img_path)
         img = torch.tensor(img, dtype=torch.float)
         # img = io.imread(img_path)
         return img, self.imgs[idx][1]
@@ -127,62 +97,108 @@ class Classifier(nn.Module):
         x = self.log_softmax(x)
         return x
 
+curr = "test"
 
-
-train_dataset = CUBDataset(data_dir, "train")
-train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=32, shuffle=True, num_workers=2, drop_last=True)
-test_dataset = CUBDataset(data_dir, "test")
-test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=32, shuffle=False, num_workers=2, drop_last=True)
+if curr == "train":
+    train_dataset = CUBDataset(data_dir, "train")
+    train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=32, shuffle=True, num_workers=2, drop_last=True)
+else:
+    test_dataset = CUBDataset(data_dir, "test")
+    test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=32, shuffle=False, num_workers=2, drop_last=False)
 
 classifier = Classifier((opts['img_size'], opts['img_size']), len(classes)).to(device)
 optimizer = torch.optim.Adam(classifier.parameters(), lr=0.01)
 criterion = torch.nn.NLLLoss()
 
-print("Starting training")
-running_loss = 0.0
-losses = []
-start_time = time.time()
-total_steps = 0
-#for epoch in range(opts.num_pretrain_epochs, opts.num_epochs):
-for epoch in range(500):
-    epoch_start_time = time.time()
-    for i, data in enumerate(train_loader):
-        inputs, labels = data
-        inputs, labels = inputs.to(device), labels.to(device)
-        optimizer.zero_grad()
+if curr == "train":
+    print("Starting training")
+    losses = []
+    start_time = time.time()
+    total_steps = 0
+    #for epoch in range(opts.num_pretrain_epochs, opts.num_epochs):
+    for epoch in range(500):
+        epoch_start_time = time.time()
+        epoch_loss = 0.0
+        for i, data in enumerate(train_loader):
+            inputs, labels = data
+            inputs, labels = inputs.to(device), labels.to(device)
+            optimizer.zero_grad()
 
-        outputs = classifier(inputs)
-        loss = criterion(outputs, labels)
-        loss.backward()
-        optimizer.step()
+            outputs = classifier(inputs)
+            loss = criterion(outputs, labels)
+            loss.backward()
+            optimizer.step()
 
-        running_loss += loss.item()
-        '''
-        if (i+1) % 92 == 0: # print every 92 minibatches - will have 2 in an epoch
-            print("{}, {}: loss: {:.4f}".format(epoch+1, i+1, running_loss/100))
-            losses += [running_loss]
-            running_loss = 0.0
-        '''
-        total_steps += 1
+            epoch_loss += loss.item()
+            '''
+            if (i+1) % 92 == 0: # print every 92 minibatches - will have 2 in an epoch
+                print("{}, {}: loss: {:.4f}".format(epoch+1, i+1, running_loss/100))
+                losses += [running_loss]
+                running_loss = 0.0
+            '''
+            total_steps += 1
 
-    print("epoch {}: {:.2f}s \t{:.2f}s total".format(epoch+1, time.time() - epoch_start_time, time.time()-start_time))
-    print("\tloss: {}".format(running_loss/(i+1)))
-    losses += [running_loss]
-    running_loss = 0.0
+        print("epoch {}: {:.2f}s \t{:.2f}s total".format(epoch+1, time.time() - epoch_start_time, time.time()-start_time))
+        print("\tloss: {}".format(epoch_loss/(i+1)))
+        losses += [epoch_loss]
 
-   
-    if (epoch + 1) % 50 == 0:
-        print('saving the model at the end of epoch {:d}, iters {:d}'.format(epoch + 1, total_steps))
-        save_filename = 'classifier_checkpoint_{}.pth'.format(epoch+1)
-        save_path = os.path.join("./checkpoints", save_filename)
-        torch.save(classifier.cpu().state_dict(), save_path)
-        classifier.to(device)
 
-print(losses)
-    # if (epoch + 1) % opts.save_epoch_freq == 0:
-    #     print('saving the model at the end of epoch {:d}, iters {:d}'.format(epoch, total_steps))
-    #     self.save('latest')
-    #     self.save(epoch + 1)
+        if (epoch + 1) % 50 == 0:
+            print('saving the model at the end of epoch {:d}, iters {:d}'.format(epoch + 1, total_steps))
+            save_filename = 'classifier_checkpoint_{}.pth'.format(epoch+1)
+            save_path = os.path.join("./checkpoints", save_filename)
+            torch.save(classifier.cpu().state_dict(), save_path)
+            classifier.to(device)
+
+    print(losses)
+
+else:
+    print("Starting testing")
+    losses = []
+    for epoch in range(50, 501, 50):
+        print("\nCheckpoint", epoch)
+        checkpoint_path = "./checkpoints/classifier_checkpoint_{}.pth".format(epoch)
+        classifier.load_state_dict(torch.load(checkpoint_path))
+        classifier.eval()
+
+        hit_inst = 0
+        total_inst = 0
+        epoch_loss = 0
+        class_hits = [0] * len(classes)
+        class_totals = [0] * len(classes)
+
+        for i, data in enumerate(test_loader):
+            inputs, labels = data
+            inputs, labels = inputs.to(device), labels.to(device)
+            optimizer.zero_grad()
+
+            outputs = classifier(inputs)
+            loss = criterion(outputs, labels)
+            epoch_loss += loss.item()
+
+            pred = outputs.argmax(1)
+
+            for i in range(len(labels)):
+                class_totals[labels[i]] += 1
+                if labels[i] == pred[i]:
+                    class_hits[labels[i]] += 1
+
+            # hit_inst += sum(class_hits)
+            # total_inst += sum(class_totals)
+            # hit_inst += sum(pred == labels)
+            # total_inst += len(labels)
+
+        print("epoch {}".format(epoch))
+        # print("\tloss: {} \t accuracy: {:.4f}".format(epoch_loss / (i + 1)), hit_inst / total_inst)
+        print("\tloss: {} \t accuracy: {:.4f}".format(epoch_loss / (i + 1)), sum(class_hits) / sum(class_totals))
+        for i in range(len(classes)):
+            print("{}: {:.4f}".format(i, class_hits[i]/class_totals[i]), end=" | ")
+        losses += [epoch_loss]
+
+
+
+
+
 
 
 # if __name__ == '__main__':
