@@ -178,10 +178,10 @@ else:
 
             pred = outputs.argmax(1)
 
-            for i in range(len(labels)):
-                class_totals[labels[i]] += 1
-                if labels[i] == pred[i]:
-                    class_hits[labels[i]] += 1
+            for j in range(len(labels)):
+                class_totals[labels[j]] += 1
+                if labels[j] == pred[j]:
+                    class_hits[labels[j]] += 1
 
             # hit_inst += sum(class_hits)
             # total_inst += sum(class_totals)
@@ -190,7 +190,7 @@ else:
 
         print("epoch {}".format(epoch))
         # print("\tloss: {} \t accuracy: {:.4f}".format(epoch_loss / (i + 1)), hit_inst / total_inst)
-        print("\tloss: {} \t accuracy: {:.4f}".format(epoch_loss / (i + 1)), sum(class_hits) / sum(class_totals))
+        print("\tloss: {} \t accuracy: {:.4f}".format(epoch_loss / (i + 1), sum(class_hits) / sum(class_totals)))
         for i in range(len(classes)):
             print("{}: {:.4f}".format(i, class_hits[i]/class_totals[i]), end=" | ")
         losses += [epoch_loss]
