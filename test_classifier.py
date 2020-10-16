@@ -11,7 +11,7 @@ import skimage.io as io
 
 import torch
 from torch import nn
-import torchvision
+from torchvision import transforms
 from torch.utils.data import Dataset
 
 from nnutils import test_utils
@@ -25,13 +25,36 @@ if torch.cuda.is_available():
 else:
     device = torch.device("cpu")
 
-opts = {'img_size': 256}
+# transforms
+image_size = 256
+resnet_transform = transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+# img_transforms = transforms.Compose([transforms.Resize(image_size),  # this resizes based on min dimension, not max
+#                                      # transforms.CenterCrop(image_size),
+#                                      # transforms.RandomHorizontalFlip(0.5),
+#                                      transforms.ToTensor(),
+#                                      resnet_transform])
 
+# def preprocess_image(img_path):
+#     im = Image.open(img_path) # PIL image
+#     if im.mode == 'L':
+#         gray = im.split()[0]
+#         im = Image.merge('RGB', (gray, gray, gray))
+#     transformed = img_transforms(im)
+#     return transformed # 3 X H X W, which is required for resnet
+
+def undo_resnet_preprocess(image_tensor):
+    # takes in an image of shape 3 X H X W
+    image_tensor = image_tensor.clone()
+    # image_tensor.narrow(1,0,1).mul_(.229).add_(.485)
+    image_tensor[0].mul_(.229).add_(.485)
+    image_tensor[1].mul_(.224).add_(.456)
+    image_tensor[2].mul_(.225).add_(.406)
+    return image_tensor
 
 def preprocess_image(img_path, img_size=256):
     img = io.imread(img_path) / 255.
     
-    # if grayscale
+    # if grayscale, convert to RGB
     if len(img.shape) == 2:
         img = np.repeat(np.expand_dims(img, 2), 3, axis=2)
 
@@ -49,6 +72,14 @@ def preprocess_image(img_path, img_size=256):
 
     # Transpose the image to 3xHxW
     img = np.transpose(img, (2, 0, 1))
+
+    # necessary preprocessing for resnet
+    img = torch.tensor(img, dtype=torch.float)
+    img = resnet_transform(img)
+
+    # random flip
+    if np.random.rand(1) > 0.5:
+        img = torch.flip(img, (2,))
 
     return img
 
@@ -75,8 +106,6 @@ class CUBDataset(Dataset):
     def __getitem__(self, idx):
         img_path = os.path.join(self.data_dir, self.imgs[idx][0])
         img = preprocess_image(img_path)
-        img = torch.tensor(img, dtype=torch.float)
-        # img = io.imread(img_path)
         return img, self.imgs[idx][1]
 
 # based on order
@@ -102,6 +131,7 @@ class Classifier(nn.Module):
         return x
 
 curr = "test"
+checkpoint_folder = "./checkpoints_16-10"
 
 train_dataset = CUBDataset(data_dir, "train")
 train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=32, shuffle=True, num_workers=2, drop_last=False)
@@ -110,7 +140,7 @@ test_dataset = CUBDataset(data_dir, "test")
 test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=32, shuffle=False, num_workers=2, drop_last=False)
 test_size = len(test_dataset)
 
-classifier = Classifier((opts['img_size'], opts['img_size']), len(classes)).to(device)
+classifier = Classifier((image_size, image_size), len(classes)).to(device)
 optimizer = torch.optim.Adam(classifier.parameters(), lr=0.01)
 criterion = torch.nn.NLLLoss(torch.tensor(class_weights).to(device))  # reweight for training
 criterion_unweighted = torch.nn.NLLLoss()
@@ -152,13 +182,13 @@ if curr == "train":
         if (epoch + 1) % 50 == 0:
             print('saving the model at the end of epoch {:d}, iters {:d}'.format(epoch + 1, total_steps))
             save_filename = 'classifier_checkpoint_{}.pth'.format(epoch+1)
-            save_path = os.path.join("./checkpoints", save_filename)
+            save_path = os.path.join(checkpoint_folder, save_filename)
             torch.save(classifier.cpu().state_dict(), save_path)
             classifier.to(device)
 
     print("=== train loss ===")
     print(losses_train)
-    torch.save(torch.tensor(losses_train), "./checkpoints/losses_train.pt")
+    torch.save(torch.tensor(losses_train), os.path.join(checkpoint_folder, "losses_train.pt"))
 
 else:
     print("Starting testing")
@@ -169,7 +199,7 @@ else:
     with torch.no_grad():
         for epoch in range(50, 501, 50):
             print("\nCheckpoint", epoch)
-            checkpoint_path = "./checkpoints_no_weighting/classifier_checkpoint_{}.pth".format(epoch)
+            checkpoint_path = os.path.join(checkpoint_folder, "classifier_checkpoint_{}.pth".format(epoch))
             
             #classifier = Classifier((opts['img_size'], opts['img_size']), len(classes)).to(device)
             classifier.load_state_dict(torch.load(checkpoint_path))
@@ -216,4 +246,4 @@ else:
     print("=== test loss (unweighted) ===")
     print(losses_test_unweighted)
     test_losses = torch.tensor((losses_test, losses_test_unweighted))
-    torch.save(test_losses, "./checkpoints_no_weighting/losses_test.pt")
+    torch.save(test_losses, os.path.join(checkpoint_folder, "losses_test.pt"))
