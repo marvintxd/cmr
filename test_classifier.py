@@ -121,7 +121,7 @@ if curr == "train":
     start_time = time.time()
     total_steps = 0
 
-    for epoch in range(5):
+    for epoch in range(500):
         epoch_start_time = time.time()
         epoch_loss_train = 0.0
 
@@ -149,7 +149,7 @@ if curr == "train":
         print("\ttrain loss: {}".format(epoch_loss_train/(i+1)))
         losses_train += [epoch_loss_train]
 
-        if (epoch + 1) % 1 == 0:
+        if (epoch + 1) % 50 == 0:
             print('saving the model at the end of epoch {:d}, iters {:d}'.format(epoch + 1, total_steps))
             save_filename = 'classifier_checkpoint_{}.pth'.format(epoch+1)
             save_path = os.path.join("./checkpoints", save_filename)
@@ -169,8 +169,11 @@ else:
     with torch.no_grad():
         for epoch in range(50, 501, 50):
             print("\nCheckpoint", epoch)
-            checkpoint_path = "./checkpoints/classifier_checkpoint_{}.pth".format(epoch)
+            checkpoint_path = "./checkpoints_no_weighting/classifier_checkpoint_{}.pth".format(epoch)
+            
+            #classifier = Classifier((opts['img_size'], opts['img_size']), len(classes)).to(device)
             classifier.load_state_dict(torch.load(checkpoint_path))
+            #classifier.eval()
 
             hit_inst = 0
             total_inst = 0
@@ -213,4 +216,4 @@ else:
     print("=== test loss (unweighted) ===")
     print(losses_test_unweighted)
     test_losses = torch.tensor((losses_test, losses_test_unweighted))
-    torch.save(test_losses, "./checkpoints/losses_test.pt")
+    torch.save(test_losses, "./checkpoints_no_weighting/losses_test.pt")
