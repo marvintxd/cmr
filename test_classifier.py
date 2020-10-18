@@ -230,7 +230,7 @@ else:
                     if labels[j] == pred[j]:
                         class_hits[labels[j]] += 1
 
-            print("\nepoch {}: {:.2f}s \t{:.2f}s total".format(epoch + 1, time.time() - epoch_start_time,
+            print("\nepoch {}: {:.2f}s \t{:.2f}s total".format(epoch, time.time() - epoch_start_time,
                                                                time.time() - start_time))
             print("\ttest loss: {} | {}\t accuracy: {:.4f}".format(epoch_loss_test / (i + 1), epoch_loss_test_unweighted / (i + 1),
                                                                    sum(class_hits) / sum(class_totals)))

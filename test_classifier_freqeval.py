@@ -14,6 +14,8 @@ from torch import nn
 from torchvision import transforms
 from torch.utils.data import Dataset
 
+from sklearn.model_selection import train_test_split
+
 from nnutils import test_utils
 from nnutils import mesh_net
 from utils import image as img_util
@@ -86,44 +88,39 @@ def preprocess_image(img_path, img_size=256):
 
     return img
 
-
-data_dir = "../cvpr18-inaturalist-transfer/data/cub_200/"
-
-
 class CUBDataset(Dataset):
-    def __init__(self, data_dir, type="train"):
+    # def __init__(self, data_dir, type="train"):
+    #     self.data_dir = data_dir
+    #
+    #     if type == "train":
+    #         img_list_file = open(os.path.join(data_dir, "categorized_by_order_train.txt"), "r")
+    #     else:
+    #         img_list_file = open(os.path.join(data_dir, "categorized_by_order_val.txt"), "r")
+    #     img_list = img_list_file.readlines()
+    #
+    #     # each line: images/200.Common_Yellowthroat/Common_Yellowthroat_0010_190572.jpg: 7
+    #     self.imgs = []
+    #     for line in img_list:
+    #         path, label = line.strip().split(': ')
+    #         self.imgs.append((path, int(label)))
+
+    def __init__(self, data_dir, X, y):
         self.data_dir = data_dir
-
-        if type == "train":
-            img_list_file = open(os.path.join(data_dir, "categorized_by_order_train.txt"), "r")
-        else:
-            img_list_file = open(os.path.join(data_dir, "categorized_by_order_val.txt"), "r")
-        img_list = img_list_file.readlines()
-
-        # each line: images/200.Common_Yellowthroat/Common_Yellowthroat_0010_190572.jpg: 7
-        self.imgs = []
-        for line in img_list:
-            path, label = line.strip().split(': ')
-            self.imgs.append((path, int(label)))
+        self.X = X
+        self.y = y
 
     def __len__(self):
-        return len(self.imgs)
+        # return len(self.imgs)
+        return len(self.X)
 
     def __getitem__(self, idx):
-        img_path = os.path.join(self.data_dir, self.imgs[idx][0])
+        # img_path = os.path.join(self.data_dir, self.imgs[idx][0])
+        # img = preprocess_image(img_path)
+        # return img, self.imgs[idx][1]
+
+        img_path = os.path.join(self.data_dir, self.X[idx])
         img = preprocess_image(img_path)
-        return img, self.imgs[idx][1]
-
-
-# based on order
-classes = ('Anseriformes', 'Apodiformes', 'Caprimulgiformes', 'Charadriiformes', 'Coraciiformes',
-           'Cuculiformes', 'Gaviiformes', 'Passeriformes', 'Pelecaniformes', 'Piciformes',
-           'Podicipediformes', 'Procellariiformes', 'Suliformes')
-
-num_insts = torch.tensor([240, 240, 165, 1364, 300, 292, 60, 7900, 110, 408, 240, 239, 231], dtype=torch.float)
-class_weights = 1 / num_insts
-class_weights = class_weights / sum(class_weights) * len(classes)
-
+        return img, self.y[idx]
 
 class Classifier(nn.Module):
     def __init__(self, input_shape, n_classes, n_blocks=4, nz_feat=100):
@@ -139,20 +136,46 @@ class Classifier(nn.Module):
         return x
 
 
-curr = "test"
-checkpoint_folder = "./checkpoints_16-10"
+data_dir = "../cvpr18-inaturalist-transfer/data/cub_200/"
+labelled_images_path = "../cvpr18-inaturalist-transfer/data/cub_200/categorized_by_order_images.txt"
+f = open(labelled_images_path, 'r')
+lines = f.readlines()
+f.close()
+X = []
+y = []
+for line in lines:
+    path, label = line.strip().split(': ')
+    X.append(path)
+    y.append(int(label))
+X_train, X_test, y_train, y_test = train_test_split(X, y, stratify=y, test_size=0.2, random_state=1)
 
-train_dataset = CUBDataset(data_dir, "train")
+# based on order
+classes = ('Anseriformes', 'Apodiformes', 'Caprimulgiformes', 'Charadriiformes', 'Coraciiformes',
+           'Cuculiformes', 'Gaviiformes', 'Passeriformes', 'Pelecaniformes', 'Piciformes',
+           'Podicipediformes', 'Procellariiformes', 'Suliformes')
+
+num_insts = torch.tensor([240, 240, 165, 1364, 300, 292, 60, 7900, 110, 408, 240, 239, 231], dtype=torch.float)
+class_weights = 1 / num_insts
+class_weights = class_weights / sum(class_weights) * len(classes)
+
+# curr = "test"
+checkpoint_folder = "./checkpoints_18-10"
+
+# train_dataset = CUBDataset(data_dir, "train")
+train_dataset = CUBDataset(data_dir, X_train, y_train)
 train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=32, shuffle=True, num_workers=2, drop_last=False)
 train_size = len(train_dataset)
-test_dataset = CUBDataset(data_dir, "test")
+# test_dataset = CUBDataset(data_dir, "test")
+test_dataset = CUBDataset(data_dir, X_test, y_test)
 test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=32, shuffle=False, num_workers=2, drop_last=False)
 test_size = len(test_dataset)
 
 classifier = Classifier((image_size, image_size), len(classes)).to(device)
-optimizer = torch.optim.Adam(classifier.parameters(), lr=0.01)
 criterion = torch.nn.NLLLoss(torch.tensor(class_weights).to(device))  # reweight for training
 criterion_unweighted = torch.nn.NLLLoss()
+
+optimizer = torch.optim.Adam(classifier.parameters(), lr=0.001)
+# lr: pytorch default = 0.001, cmr default = 0.0001
 
 # if curr == "train":
 if True:
@@ -222,7 +245,7 @@ if True:
 
                 pred = outputs.argmax(1)
 
-                hit_inst += sum(pred == labels)
+                hit_inst += sum(pred == labels).item()
                 total_inst += len(pred)
 
                 # for j in range(len(labels)):
@@ -254,3 +277,4 @@ if True:
     print(losses_test_unweighted)
     test_losses = torch.tensor((losses_test, losses_test_unweighted))
     torch.save(test_losses, os.path.join(checkpoint_folder, "losses_test.pt"))
+    torch.save(accuracy, os.path.join(checkpoint_folder, "accuracy.pt"))
