@@ -17,7 +17,7 @@ from torch.utils.data import Dataset
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import classification_report
 
-from train_classifier_freqeval import CUBDataset, Classifier
+from classifier_model import CUBDataset, Classifier
 
 if torch.cuda.is_available():
     device = torch.device("cuda:0")
@@ -27,7 +27,6 @@ else:
 
 # transforms
 image_size = 256
-resnet_transform = transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
 
 data_dir = "../cvpr18-inaturalist-transfer/data/cub_200/"
 labelled_images_path = "../cvpr18-inaturalist-transfer/data/cub_200/categorized_by_order_images.txt"
@@ -51,7 +50,7 @@ num_insts = torch.tensor([240, 240, 165, 1364, 300, 292, 60, 7900, 110, 408, 240
 class_weights = 1 / num_insts
 class_weights = class_weights / sum(class_weights) * len(classes)
 
-checkpoint_folder = "./checkpoints_18-10"
+checkpoint_folder = "./checkpoints_18-10_wd0"
 
 test_dataset = CUBDataset(data_dir, X_test, y_test)
 test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=32, shuffle=False, num_workers=2, drop_last=False)
