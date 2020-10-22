@@ -81,12 +81,8 @@ if True:
 
             epoch_test_start_time = time.time()
 
-            hit_inst = 0
-            total_inst = 0
             epoch_loss_test = 0.0
             epoch_loss_test_unweighted = 0.0
-            class_hits = [0] * len(classes)
-            class_totals = [0] * len(classes)
 
             preds_all = []
             labels_all = []
@@ -106,22 +102,23 @@ if True:
                 preds_all.append(pred)  # list of tensors
                 labels_all.append(labels)
 
-        preds_all_t = torch.cat(preds_all)
-        labels_all_t = torch.cat(labels_all)
+            preds_all_t = torch.cat(preds_all)
+            labels_all_t = torch.cat(labels_all)
 
-        print("\ntest: {:.2f}s \t{:.2f}s total".format(time.time() - epoch_test_start_time,
-                                                           time.time() - start_time))
-        # epoch_accuracy = sum(class_hits) / sum(class_totals)
-        epoch_accuracy = hit_inst / total_inst
-        print("\ttest loss: {} | {}\t accuracy: {:.4f}".format(epoch_loss_test / (i + 1),
-                                                               epoch_loss_test_unweighted / (i + 1),
-                                                              epoch_accuracy))
-        print('\nClassification Report\n')
-        print(classification_report(labels_all_t, preds_all_t, classes))
-        print('\n')
-        losses_test += [epoch_loss_test]
-        losses_test_unweighted += [epoch_loss_test_unweighted]
-        accuracy += [epoch_accuracy]
+            print("\ntest: {:.2f}s \t{:.2f}s total".format(time.time() - epoch_test_start_time,
+                                                               time.time() - start_time))
+            
+            epoch_accuracy = sum(preds_all_t == labels_all_t).item()
+
+            print("\ttest loss: {} | {}\t accuracy: {:.4f}".format(epoch_loss_test / (i + 1),
+                                                                   epoch_loss_test_unweighted / (i + 1),
+                                                                  epoch_accuracy))
+            print('\nClassification Report\n')
+            print(classification_report(labels_all_t, preds_all_t, classes))
+            print('\n')
+            losses_test += [epoch_loss_test]
+            losses_test_unweighted += [epoch_loss_test_unweighted]
+            accuracy += [epoch_accuracy]
 
     # print("=== test loss ===")
     # print(losses_test)
