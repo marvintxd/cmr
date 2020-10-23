@@ -5,13 +5,7 @@ from __future__ import print_function
 import os
 import time
 
-# from absl import flags, app
-import numpy as np
-import skimage.io as io
-
 import torch
-from torch import nn
-from torchvision import transforms
 from torch.utils.data import Dataset
 
 from sklearn.model_selection import train_test_split
@@ -25,7 +19,6 @@ if torch.cuda.is_available():
 else:
     device = torch.device("cpu")
 
-# transforms
 image_size = 256
 
 data_dir = "../cvpr18-inaturalist-transfer/data/cub_200/"
@@ -60,11 +53,8 @@ classifier = Classifier((image_size, image_size), len(classes)).to(device)
 criterion = torch.nn.NLLLoss(torch.tensor(class_weights).to(device))  # reweight for training
 criterion_unweighted = torch.nn.NLLLoss()
 
-optimizer = torch.optim.Adam(classifier.parameters(), lr=0.001)
-# lr: pytorch default = 0.001, cmr default = 0.0001
-
 if True:
-    print("Starting training")
+    print("Starting testing")
     losses_train = []
     losses_test = []
     losses_test_unweighted = []
@@ -108,22 +98,15 @@ if True:
             print("\ntest: {:.2f}s \t{:.2f}s total".format(time.time() - epoch_test_start_time,
                                                                time.time() - start_time))
             
-            epoch_accuracy = sum(preds_all_t == labels_all_t).item()
+            epoch_accuracy = sum(preds_all_t == labels_all_t).item() / len(labels_all_t)
 
             print("\ttest loss: {} | {}\t accuracy: {:.4f}".format(epoch_loss_test / (i + 1),
                                                                    epoch_loss_test_unweighted / (i + 1),
                                                                   epoch_accuracy))
             print('\nClassification Report\n')
-            print(classification_report(labels_all_t, preds_all_t, classes))
+            print(classification_report(labels_all_t.cpu(), preds_all_t.cpu(), target_names=classes))
             print('\n')
             losses_test += [epoch_loss_test]
             losses_test_unweighted += [epoch_loss_test_unweighted]
             accuracy += [epoch_accuracy]
 
-    # print("=== test loss ===")
-    # print(losses_test)
-    # print("=== test loss (unweighted) ===")
-    # print(losses_test_unweighted)
-    # test_losses = torch.tensor((losses_test, losses_test_unweighted))
-    # torch.save(test_losses, os.path.join(checkpoint_folder, "losses_test.pt"))
-    # torch.save(accuracy, os.path.join(checkpoint_folder, "accuracy.pt"))

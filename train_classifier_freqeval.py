@@ -5,21 +5,10 @@ from __future__ import print_function
 import os
 import time
 
-# from absl import flags, app
-import numpy as np
-import skimage.io as io
-
 import torch
-from torch import nn
-from torchvision import transforms
 from torch.utils.data import Dataset
 
 from sklearn.model_selection import train_test_split
-
-from nnutils import test_utils
-from nnutils import mesh_net
-from utils import image as img_util
-from data import cub as cub_data
 
 from classifier_model import CUBDataset, Classifier
 
@@ -28,10 +17,6 @@ if torch.cuda.is_available():
     torch.cuda.set_device(device)
 else:
     device = torch.device("cpu")
-
-# transforms
-image_size = 256
-
 
 def undo_resnet_preprocess(image_tensor):
     # takes in an image of shape 3 X H X W
@@ -42,6 +27,7 @@ def undo_resnet_preprocess(image_tensor):
     image_tensor[2].mul_(.225).add_(.406)
     return image_tensor
 
+image_size = 256
 
 data_dir = "../cvpr18-inaturalist-transfer/data/cub_200/"
 labelled_images_path = "../cvpr18-inaturalist-transfer/data/cub_200/categorized_by_order_images.txt"
@@ -65,8 +51,7 @@ num_insts = torch.tensor([240, 240, 165, 1364, 300, 292, 60, 7900, 110, 408, 240
 class_weights = 1 / num_insts
 class_weights = class_weights / sum(class_weights) * len(classes)
 
-# curr = "test"
-checkpoint_folder = "./checkpoints_18-10"
+checkpoint_folder = "./checkpoints_23-10_wd0"
 
 # train_dataset = CUBDataset(data_dir, "train")
 train_dataset = CUBDataset(data_dir, X_train, y_train)
@@ -93,6 +78,10 @@ if True:
     accuracy = []
     start_time = time.time()
     total_steps = 0
+
+    min_loss_test_epoch = 0
+    min_loss_test_unweighted_epoch = 0
+    max_accuracy_epoch = 0
 
     for epoch in range(500):
         epoch_start_time = time.time()
@@ -133,12 +122,10 @@ if True:
         epoch_test_start_time = time.time()
         classifier.eval()
         with torch.no_grad():
-            hit_inst = 0
-            total_inst = 0
             epoch_loss_test = 0.0
             epoch_loss_test_unweighted = 0.0
-            class_hits = [0] * len(classes)
-            class_totals = [0] * len(classes)
+            preds_all = []
+            labels_all = []
 
             for i, data in enumerate(test_loader):
                 inputs, labels = data
@@ -152,28 +139,47 @@ if True:
 
                 pred = outputs.argmax(1)
 
-                hit_inst += sum(pred == labels).item()
-                total_inst += len(pred)
+                preds_all.append(pred)  # list of tensors
+                labels_all.append(labels)
 
-                # for j in range(len(labels)):
-                #     class_totals[labels[j]] += 1
-                #     if labels[j] == pred[j]:
-                #         class_hits[labels[j]] += 1
+            preds_all_t = torch.cat(preds_all)
+            labels_all_t = torch.cat(labels_all)
 
             print("\ntest: {:.2f}s \t{:.2f}s total".format(time.time() - epoch_test_start_time,
                                                                time.time() - start_time))
-            # epoch_accuracy = sum(class_hits) / sum(class_totals)
-            epoch_accuracy = hit_inst / total_inst
+
+            epoch_accuracy = sum(preds_all_t == labels_all_t).item() / len(labels_all_t)
+
             print("\ttest loss: {} | {}\t accuracy: {:.4f}".format(epoch_loss_test / (i + 1),
                                                                    epoch_loss_test_unweighted / (i + 1),
                                                                   epoch_accuracy))
-            # for i in range(len(classes)):
-            #     print("{}: {:.3f}".format(i, (class_hits[i] / class_totals[i]) if class_totals[i] > 0 else -1),
-            #           end=", ")
+
             print('\n')
             losses_test += [epoch_loss_test]
             losses_test_unweighted += [epoch_loss_test_unweighted]
             accuracy += [epoch_accuracy]
+
+            if epoch_loss_test < losses_test[min_loss_test_epoch]:
+                print('lowest test loss: saving the model at the end of epoch {:d}, iters {:d}'.format(epoch + 1, total_steps))
+                save_filename = 'classifier_checkpoint_lowest_test_loss.pth'.format(epoch + 1)
+                save_path = os.path.join(checkpoint_folder, save_filename)
+                torch.save(classifier.state_dict(), save_path)
+                min_loss_test_epoch = epoch
+
+            if epoch_loss_test_unweighted < losses_test_unweighted[min_loss_test_unweighted_epoch]:
+                print('lowest test loss (unweighted): saving the model at the end of epoch {:d}, iters {:d}'.format(epoch + 1, total_steps))
+                save_filename = 'classifier_checkpoint_lowest_test_loss_unweighted.pth'.format(epoch + 1)
+                save_path = os.path.join(checkpoint_folder, save_filename)
+                torch.save(classifier.state_dict(), save_path)
+                min_loss_test_unweighted_epoch = epoch
+
+            if epoch_accuracy > accuracy[max_accuracy_epoch]:
+                print('highest accuracy: saving the model at the end of epoch {:d}, iters {:d}'.format(
+                    epoch + 1, total_steps))
+                save_filename = 'classifier_checkpoint_highest_accuracy.pth'.format(epoch + 1)
+                save_path = os.path.join(checkpoint_folder, save_filename)
+                torch.save(classifier.state_dict(), save_path)
+                max_accuracy_epoch = epoch
 
     print("=== train loss ===")
     print(losses_train)
@@ -185,3 +191,7 @@ if True:
     test_losses = torch.tensor((losses_test, losses_test_unweighted))
     torch.save(test_losses, os.path.join(checkpoint_folder, "losses_test.pt"))
     torch.save(accuracy, os.path.join(checkpoint_folder, "accuracy.pt"))
+
+    print("min test loss: epoch", min_loss_test_epoch + 1)
+    print("min test loss (unweighted): epoch", min_loss_test_unweighted_epoch + 1)
+    print("max accuracy: epoch", max_accuracy_epoch + 1)
